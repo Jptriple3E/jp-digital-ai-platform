@@ -10,6 +10,14 @@
     "not_found_handling": "single-page-application"
   },
 
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jp-digital-ai-db",
+      "database_id": "f01eadfb-a280-4ee9-97ec-1bf3c42ea933"
+    }
+  ],
+
   "workers_dev": true,
 
   "observability": {
