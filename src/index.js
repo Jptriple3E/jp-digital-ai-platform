@@ -5,10 +5,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // =========================================
-    // CORS
-    // =========================================
-
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -22,7 +18,6 @@ export default {
       });
     }
 
-
     // =========================================
     // HEALTH CHECK
     // =========================================
@@ -31,19 +26,25 @@ export default {
       return json({
         success: true,
         service: "JP Digital AI Platform",
-        status: "online"
+        status: "online",
+        database: env.DB ? "connected" : "not connected"
       }, corsHeaders);
     }
 
-
     // =========================================
-    // BASIC API ROUTES
+    // WEBSITE SCANNER
     // =========================================
 
-    if (url.pathname === "/api/scan" && request.method === "POST") {
+    if (
+      url.pathname === "/api/scan" &&
+      request.method === "POST"
+    ) {
       return handleScan(request, env, corsHeaders);
     }
 
+    // =========================================
+    // AI WEBSITE BUILDER
+    // =========================================
 
     if (
       url.pathname === "/api/builder/generate" &&
@@ -56,9 +57,34 @@ export default {
       );
     }
 
+    // =========================================
+    // RECEPTIONIST 7-DAY TRIAL
+    // =========================================
+
+    if (
+      url.pathname === "/api/receptionist/trial" &&
+      request.method === "POST"
+    ) {
+      return handleReceptionistTrial(
+        request,
+        env,
+        corsHeaders
+      );
+    }
 
     // =========================================
-    // DEFAULT RESPONSE
+    // PRODUCT LOOKUP
+    // =========================================
+
+    if (
+      url.pathname === "/api/product" &&
+      request.method === "GET"
+    ) {
+      return handleProduct(request, env, corsHeaders);
+    }
+
+    // =========================================
+    // DEFAULT
     // =========================================
 
     return new Response(
@@ -72,15 +98,15 @@ export default {
 };
 
 
-/* =========================================
-   SCANNER
-========================================= */
+// =========================================
+// WEBSITE SCANNER
+// =========================================
 
 async function handleScan(request, env, corsHeaders) {
   try {
     const body = await request.json();
 
-    const websiteUrl = body.url;
+    const websiteUrl = body.url?.trim();
 
     if (!websiteUrl) {
       return json({
@@ -107,33 +133,65 @@ async function handleScan(request, env, corsHeaders) {
       }, corsHeaders, 400);
     }
 
-    /*
-      The full JP Business Scanner will be connected here.
+    const id = crypto.randomUUID();
 
-      For now we safely test that the Worker
-      received the website URL.
-    */
+    if (env.DB) {
+      await env.DB.prepare(`
+        INSERT INTO scanner_results (
+          id,
+          website_url,
+          seo_score,
+          performance_score,
+          trust_score,
+          conversion_score,
+          authority_score,
+          crawlability_score,
+          ai_visibility_score,
+          total_score,
+          results_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+        .bind(
+          id,
+          parsedUrl.href,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          JSON.stringify({
+            status: "received",
+            message: "Website received for analysis."
+          })
+        )
+        .run();
+    }
 
     return json({
       success: true,
+      id,
       url: parsedUrl.href,
       status: "received",
-      message: "Website received by JP Business Scanner.",
-      next_step: "Full scanner analysis will run here."
+      message: "Website received by JP Business Scanner."
     }, corsHeaders);
 
   } catch (error) {
     return json({
       success: false,
-      error: "Unable to process scanner request."
+      error: "Unable to process scanner request.",
+      details: error.message
     }, corsHeaders, 500);
   }
 }
 
 
-/* =========================================
-   AI WEBSITE BUILDER
-========================================= */
+// =========================================
+// AI WEBSITE BUILDER
+// =========================================
 
 async function handleBuilderGeneration(
   request,
@@ -143,11 +201,20 @@ async function handleBuilderGeneration(
   try {
     const body = await request.json();
 
-    const {
-      businessName,
-      businessType,
-      description
-    } = body;
+    // Supports both the old and new frontend format
+    const businessName =
+      body.businessName?.trim() ||
+      body.business?.trim();
+
+    const businessType =
+      body.businessType?.trim() || "";
+
+    const description =
+      body.description?.trim() ||
+      body.business?.trim();
+
+    const userId =
+      body.userId || null;
 
     if (!businessName || !description) {
       return json({
@@ -156,58 +223,310 @@ async function handleBuilderGeneration(
       }, corsHeaders, 400);
     }
 
-    /*
-      Workers AI will be connected here.
+    const projectId = crypto.randomUUID();
+    const websiteId = crypto.randomUUID();
 
-      The AI will eventually generate:
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHTML(businessName)}</title>
+<meta name="description" content="${escapeHTML(description)}">
+</head>
 
-      - Website structure
-      - Homepage copy
-      - Services
-      - About section
-      - Contact section
-      - CTA
-      - SEO title
-      - SEO description
-      - FAQ
-      - Lead capture flow
-      - Complete website HTML
-    */
+<body>
+
+<header>
+  <h1>${escapeHTML(businessName)}</h1>
+  <p>${escapeHTML(description)}</p>
+  <button>Contact Us</button>
+</header>
+
+<main>
+
+<section>
+  <h2>Welcome to ${escapeHTML(businessName)}</h2>
+  <p>
+    We are here to provide quality services
+    and help our customers get the results they need.
+  </p>
+</section>
+
+<section>
+  <h2>Our Services</h2>
+  <p>
+    Discover our services and see how we can
+    help you.
+  </p>
+</section>
+
+<section>
+  <h2>Get In Touch</h2>
+  <p>Contact us today to learn more.</p>
+  <button>Contact Us</button>
+</section>
+
+</main>
+
+</body>
+</html>
+`;
+
+    if (env.DB) {
+      await env.DB.prepare(`
+        INSERT INTO website_projects (
+          id,
+          user_id,
+          business_name,
+          business_type,
+          description,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+        .bind(
+          projectId,
+          userId,
+          businessName,
+          businessType,
+          description,
+          "preview"
+        )
+        .run();
+
+      await env.DB.prepare(`
+        INSERT INTO generated_websites (
+          id,
+          user_id,
+          project_id,
+          prompt,
+          generated_html,
+          status,
+          unlocked
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+        .bind(
+          websiteId,
+          userId,
+          projectId,
+          description,
+          html,
+          "preview",
+          0
+        )
+        .run();
+    }
 
     return json({
       success: true,
-      status: "received",
+      projectId,
+      websiteId,
+      status: "preview",
+      unlocked: false,
       business: {
         name: businessName,
-        type: businessType || "",
+        type: businessType,
         description
       },
-      message:
-        "Website request received. Workers AI generation will be connected next."
+      html,
+      message: "Website preview generated successfully."
     }, corsHeaders);
 
   } catch (error) {
     return json({
       success: false,
-      error: "Unable to process website request."
+      error: "Unable to generate website.",
+      details: error.message
     }, corsHeaders, 500);
   }
 }
 
 
-/* =========================================
-   JSON RESPONSE HELPER
-========================================= */
+// =========================================
+// AI RECEPTIONIST 7-DAY TRIAL
+// =========================================
 
-function json(data, corsHeaders = {}, status = 200) {
+async function handleReceptionistTrial(
+  request,
+  env,
+  corsHeaders
+) {
+  try {
+    const body = await request.json();
+
+    const businessName =
+      body.businessName?.trim();
+
+    const email =
+      body.email?.trim();
+
+    const phone =
+      body.phone?.trim() || null;
+
+    const userId =
+      body.userId || null;
+
+    if (!businessName || !email) {
+      return json({
+        success: false,
+        error: "Business name and email are required."
+      }, corsHeaders, 400);
+    }
+
+    const trialId = crypto.randomUUID();
+
+    const started = new Date();
+
+    const ends = new Date(
+      started.getTime() +
+      7 * 24 * 60 * 60 * 1000
+    );
+
+    if (env.DB) {
+      await env.DB.prepare(`
+        INSERT INTO receptionist_trials (
+          id,
+          user_id,
+          business_name,
+          business_email,
+          business_phone,
+          trial_started_at,
+          trial_ends_at,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+        .bind(
+          trialId,
+          userId,
+          businessName,
+          email,
+          phone,
+          started.toISOString(),
+          ends.toISOString(),
+          "active"
+        )
+        .run();
+    }
+
+    return json({
+      success: true,
+      trialId,
+      trialStartedAt: started.toISOString(),
+      trialEndsAt: ends.toISOString(),
+      trialDays: 7,
+      activationPriceUSD: 200,
+      status: "active",
+      message:
+        "Your 7-day AI Receptionist trial has started."
+    }, corsHeaders);
+
+  } catch (error) {
+    return json({
+      success: false,
+      error: "Unable to start receptionist trial.",
+      details: error.message
+    }, corsHeaders, 500);
+  }
+}
+
+
+// =========================================
+// PRODUCT LOOKUP
+// =========================================
+
+async function handleProduct(
+  request,
+  env,
+  corsHeaders
+) {
+  try {
+    const url = new URL(request.url);
+
+    const slug =
+      url.searchParams.get("slug");
+
+    if (!slug) {
+      return json({
+        success: false,
+        error: "Product slug is required."
+      }, corsHeaders, 400);
+    }
+
+    if (!env.DB) {
+      return json({
+        success: false,
+        error: "Database is not connected."
+      }, corsHeaders, 500);
+    }
+
+    const product =
+      await env.DB.prepare(`
+        SELECT *
+        FROM products
+        WHERE slug = ?
+        LIMIT 1
+      `)
+        .bind(slug)
+        .first();
+
+    if (!product) {
+      return json({
+        success: false,
+        error: "Product not found."
+      }, corsHeaders, 404);
+    }
+
+    return json({
+      success: true,
+      product
+    }, corsHeaders);
+
+  } catch (error) {
+    return json({
+      success: false,
+      error: "Unable to load product.",
+      details: error.message
+    }, corsHeaders, 500);
+  }
+}
+
+
+// =========================================
+// HTML ESCAPE
+// =========================================
+
+function escapeHTML(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+
+// =========================================
+// JSON RESPONSE
+// =========================================
+
+function json(
+  data,
+  corsHeaders = {},
+  status = 200
+) {
   return new Response(
     JSON.stringify(data, null, 2),
     {
       status,
       headers: {
-        "Content-Type": "application/json; charset=UTF-8",
+        "Content-Type":
+          "application/json; charset=UTF-8",
         ...corsHeaders
       }
     }
   );
-}
+        }
